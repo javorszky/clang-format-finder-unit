@@ -180,6 +180,8 @@ func IdealClangFormatFile() (ClangFormat, int, error) {
 }
 
 func runOption(option ClangFormat) (int, error) {
+	fmt.Println("Writing .clang-format file")
+
 	err := os.WriteFile(
 		path.Join(TargetDirectory, filename),
 		[]byte(option.String()),
@@ -202,21 +204,17 @@ func runOption(option ClangFormat) (int, error) {
 		"clang-format",
 		"-i",
 		"--style=file", // will find a .clang-format file going up the tree.
-		"src/*.c",
-		"src/*.h",
-		"src/**/*.c",
-		"src/**/*.h",
+		"--verbose",
+		"--files=files.list",
 	)
 
-	fmt.Printf("command to run: %s\n", clangFormatCmd.String())
-
-	clangFormatCmd.Dir = UnitDirectory
 	clangFormatCmd.Stderr = &stdErr
 	// clangFormatCmd does not need stdOut
 
+	fmt.Println("Running clang-format command")
 	err = clangFormatCmd.Run()
 	if err != nil {
-		return 0, errors.Wrapf(err, "cmd.runOption: %s", stdErr.String())
+		return 0, errors.Wrapf(err, "clangFormatCmd.Run(): %s", stdErr.String())
 	}
 
 	// let's get the diff
@@ -237,10 +235,18 @@ func runOption(option ClangFormat) (int, error) {
 	diffCmd.Stdout = &stdOut
 	diffCmd.Stderr = &stdErr
 
+	fmt.Println("Getting diff")
+	err = diffCmd.Run()
+	if err != nil {
+		return 0, errors.Wrapf(err, "diff: %s", stdErr.String())
+	}
+
 	linesChanged, err := parseNumStat(stdOut.String())
 	if err != nil {
 		return 0, errors.Wrap(err, "parseNumStat")
 	}
+
+	fmt.Printf("Got diff, lines changed is %d\n", linesChanged)
 
 	resetCtx, resetCxl := context.WithTimeout(
 		context.Background(),
@@ -248,6 +254,7 @@ func runOption(option ClangFormat) (int, error) {
 	)
 	defer resetCxl()
 
+	fmt.Printf("Resetting repository\n\n")
 	resetCmd := exec.CommandContext(resetCtx,
 		"git",
 		"--no-pager",
@@ -260,15 +267,22 @@ func runOption(option ClangFormat) (int, error) {
 		return 0, errors.Wrap(err, "reset")
 	}
 
-	fmt.Printf("Checked format file, lines changed %d\n", linesChanged)
 	return linesChanged, nil
 }
 
 func parseNumStat(output string) (int, error) {
 	totalLinesChanged := 0
 
+	trimmed := strings.TrimSpace(output)
+	if len(trimmed) == 0 {
+		return math.MaxInt32, nil
+	}
+
 	// Split the input by lines
 	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) == 0 {
+		return math.MaxInt32, nil
+	}
 
 	for _, line := range lines {
 		// Split each line into columns
