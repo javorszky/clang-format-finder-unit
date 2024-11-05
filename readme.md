@@ -18,3 +18,21 @@ as of 5th November 2024 with the given options.
 There's also a file called [.clang-format-doesntmatter](.clang-format-doesntmatter) which lists all the options 
 where the different values for those options did not change the number of lines changed. It does not mean that those 
 options ended up with the _same_ diff, it means they changed the same number of lines.
+
+## FAQ
+
+### How does this even work?
+
+For every option, it picks one value, generates a `.clang-format` file, runs the formatter, gets the diff, and 
+counts the lines changed across all files, then picks the value with the lowest number of lines changed for a given 
+option before it moves to the next option.
+
+Before it checks each value for each option it git resets the repository to the current HEAD of the master branch, 
+to make sure there are no changes from a previous run.
+
+It goes through the entire option list three times, to make sure that the file we arrive on is the best 
+constellation of options / values we can have.
+
+### How are lines changed calculated?
+
+After running the tool we grab the diff with [`git diff --numstat`](https://git-scm.com/docs/git-diff#Documentation/git-diff.txt---numstat) which we parse. For each file there's a pair of numbers: added and deleted. I take the higher of these with the assumption that if we added 5 lines and deleted 4 lines, we actually only changed 5 lines (changed 4, added 1).
