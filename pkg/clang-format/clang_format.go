@@ -21,20 +21,152 @@ const dot = "."
 const TargetDirectory = "."
 const UnitDirectory = "unit/"
 
-var filePatterns = []string{
-	"src/*.c",
-	"src/*.h",
-	"src/**/*.c",
-	"src/**/*.h",
-}
+var errNoLinesChanged = errors.New("no lines changed")
+
+var bools = []string{"true", "false"}
 
 var options = map[string][]string{
-	"Language":                                     {"Cpp"},           // 1
-	"AlignConsecutiveAssignments.Enabled":          {"true", "false"}, // 2 - total 2
-	"AlignConsecutiveAssignments.AcrossEmptyLines": {"true", "false"}, // 2 - total 4
-	"AlignConsecutiveAssignments.AcrossComments":   {"true", "false"}, // 2 - total 8
-	"AlignConsecutiveAssignments.AlignCompound":    {"true", "false"}, // 2 - total 16
-	"AlignConsecutiveAssignments.PadOperators":     {"true", "false"}, // 2 - total 32
+	"AlignConsecutiveAssignments.Enabled":                bools, // 2 - total 2
+	"AlignConsecutiveAssignments.AcrossEmptyLines":       bools, // 2 - total 4
+	"AlignConsecutiveAssignments.AcrossComments":         bools, // 2 - total 8
+	"AlignConsecutiveAssignments.AlignCompound":          bools, // 2 - total 16
+	"AlignConsecutiveAssignments.PadOperators":           bools, // 2 - total 32
+	"AlignAfterOpenBracket":                              {"Align", "DontAlign", "AlwaysBreak", "BlockIndent"},
+	"AlignArrayOfStructures":                             {"None", "Left", "Right"},
+	"AlignConsecutiveBitFields.Enabled":                  bools,
+	"AlignConsecutiveBitFields.AcrossEmptyLines":         bools,
+	"AlignConsecutiveBitFields.AcrossComments":           bools,
+	"AlignConsecutiveDeclarations.Enabled":               bools,
+	"AlignConsecutiveDeclarations.AcrossEmptyLines":      bools,
+	"AlignConsecutiveDeclarations.AcrossComments":        bools,
+	"AlignConsecutiveDeclarations.AlignFunctionPointers": bools,
+	"AlignConsecutiveMacros.Enabled":                     bools,
+	"AlignConsecutiveMacros.AcrossEmptyLines":            bools,
+	"AlignConsecutiveMacros.AcrossComments":              bools,
+	"AlignEscapedNewlines":                               {"Right", "Left", "LeftWithLastLine", "DontAlign"},
+	"AlignOperands":                                      {"Align", "DontAlign", "AlignAfterOperator"},
+	"AlignTrailingComments.Kind":                         {"Always", "Leave", "Never"},
+	"AlignTrailingComments.OverEmptyLines":               {"0"},
+	"AllowAllArgumentsOnNextLine":                        bools,
+	"AllowAllParametersOfDeclarationOnNextLine":          bools,
+	"AllowShortBlocksOnASingleLine":                      {"Always", "Empty", "Never"},
+	"AllowShortCaseExpressionOnASingleLine":              bools,
+	"AllowShortCaseLabelsOnASingleLine":                  bools,
+	"AllowShortEnumsOnASingleLine":                       bools,
+	"AllowShortFunctionsOnASingleLine":                   {"None", "InlineOnly", "Empty", "All", "Inline"},
+	"AllowShortIfStatementsOnASingleLine":                {"Never", "WithoutElse", "OnlyFirstIf", "AllIfsAndElse"},
+	"AllowShortLoopsOnASingleLine":                       bools,
+	"AlwaysBreakBeforeMultilineStrings":                  bools,
+	// "AttributeMacros" - this is not a multiple choice, but a list. This finder doesn't implement handling
+	// lists
+	"BinPackArguments":                    bools,
+	"BinPackParameters":                   bools,
+	"BitFieldColonSpacing":                {"None", "Both", "Before", "After"},
+	"BraceWrapping.AfterCaseLabel":        bools,
+	"BraceWrapping.AfterClass":            bools,
+	"BraceWrapping.AfterControlStatement": {"Never", "MultiLine", "Always"},
+	"BraceWrapping.AfterEnum":             bools,
+	"BraceWrapping.AfterExternBlock":      bools,
+	"BraceWrapping.AfterFunction":         bools,
+	"BraceWrapping.AfterNamespace":        bools,
+	"BraceWrapping.AfterObjCDeclaration":  bools,
+	"BraceWrapping.AfterStruct":           bools,
+	"BraceWrapping.AfterUnion":            bools,
+	"BraceWrapping.BeforeCatch":           bools,
+	"BraceWrapping.BeforeElse":            bools,
+	"BraceWrapping.BeforeLambdaBody":      bools,
+	"BraceWrapping.BeforeWhile":           bools,
+	"BraceWrapping.IndentBraces":          bools,
+	"BraceWrapping.SplitEmptyFunction":    bools,
+	"BraceWrapping.SplitEmptyRecord":      bools,
+	"BraceWrapping.SplitEmptyNamespace":   bools,
+	"BreakAdjacentStringLiterals":         bools,
+	"BreakAfterReturnType":                {"None", "Automatic", "ExceptShortType", "All", "TopLevel", "AllDefinitions", "TopLevelDefinitions"},
+	"BreakBeforeBinaryOperators":          {"All", "None", "NonAssignment"},
+	"BreakBeforeBraces":                   {"Custom"}, // This needs to be custom, so the BraceWrapping gets used
+	"BreakBeforeTernaryOperators":         bools,
+	"BreakConstructorInitializers":        {"BeforeColon", "BeforeComma", "AfterColon"},
+	"BreakFunctionDefinitionParameters":   bools,
+	"BreakStringLiterals":                 bools,
+	"ColumnLimit":                         {"80"},
+	"CommentPragmas":                      {"'^ IWYU pragma:'"},
+	"ContinuationIndentWidth":             {"2"},
+	"DerivePointerAlignment":              bools,
+	"DisableFormat":                       {"false"},    // this needs to be false
+	"IncludeBlocks":                       {"Preserve"}, // This needs to stay as is because it's brittle
+	// all other include related rules are skipped
+	"IndentAccessModifiers":                bools,
+	"IndentCaseBlocks":                     bools,
+	"IndentCaseLabels":                     bools,
+	"IndentGotoLabels":                     bools,
+	"IndentPPDirectives":                   {"None", "AfterHash", "BeforeHash"},
+	"IndentWidth":                          {"4"},
+	"IndentWrappedFunctionNames":           bools,
+	"InsertNewlineAtEOF":                   bools,
+	"KeepEmptyLines.AtEndOfFile":           bools,
+	"KeepEmptyLines.AtStartOfBlock":        bools,
+	"KeepEmptyLines.AtStartOfFile":         bools,
+	"LambdaBodyIndentation":                {"Signature", "OuterScope"},
+	"Language":                             {"Cpp"},      // this needs to be this specific value
+	"LineEnding":                           {"DeriveLF"}, // this is locked to DeriveLF
+	"MacroBlockBegin":                      {"''"},
+	"MacroBlockEnd":                        {"''"},
+	"MainIncludeChar":                      {"Any"}, // Locked to this value because messing with includes is bad
+	"MaxEmptyLinesToKeep":                  {"0", "1", "2", "3", "4"},
+	"PenaltyBreakAssignment":               {"2"}, // Penalties are left as is for now
+	"PenaltyBreakBeforeFirstCallParameter": {"19"},
+	"PenaltyBreakComment":                  {"300"},
+	"PenaltyBreakFirstLessLess":            {"120"},
+	"PenaltyBreakOpenParenthesis":          {"0"},
+	"PenaltyBreakScopeResolution":          {"500"},
+	"PenaltyBreakString":                   {"1000"},
+	"PenaltyBreakTemplateDeclaration":      {"10"},
+	"PenaltyExcessCharacter":               {"1000000"},
+	"PenaltyIndentedWhitespace":            {"0"},
+	"PenaltyReturnTypeOnItsOwnLine":        {"60"},
+	"PointerAlignment":                     {"Right"}, // this is specifically called out in the confluence as Right
+	"PPIndentWidth":                        {"-1"},    // -1 is IndentWidthfor preprocessor statements
+	"QualifierAlignment":                   {"Leave"}, // locked to Leave, called out in docs that this is dangerous
+	"ReferenceAlignment":                   {"Pointer", "Left", "Right", "Middle"},
+	"ReflowComments":                       bools,
+	"RemoveBracesLLVM":                     bools,
+	"RemoveParentheses":                    {"Leave", "MultipleParentheses", "ReturnStatement"},
+	"RemoveSemicolon":                      bools,
+	"SeparateDefinitionBlocks":             {"Always", "Leave", "Never"},
+	"SkipMacroDefinitionBody":              bools,
+	"SortIncludes":                         {"Never"}, // locked to Never, changing this will break everything
+	"SpaceAfterCStyleCast":                 bools,
+	"SpaceAfterLogicalNot":                 bools,
+	"SpaceAroundPointerQualifiers":         {"Default", "Before", "After", "Both"},
+	"SpaceBeforeAssignmentOperators":       {"true"},
+	"SpaceBeforeCaseColon":                 {"false"},
+	"SpaceBeforeParens":                    {"Custom"},
+	// locked into Custom to allow the SpaceBeforeParensOptions sub options to take effect
+	"SpaceBeforeParensOptions.AfterControlStatements":       bools,
+	"SpaceBeforeParensOptions.AfterForeachMacros":           bools,
+	"SpaceBeforeParensOptions.AfterFunctionDefinitionName":  bools,
+	"SpaceBeforeParensOptions.AfterFunctionDeclarationName": bools,
+	"SpaceBeforeParensOptions.AfterIfMacros":                bools,
+	"SpaceBeforeParensOptions.AfterOverloadedOperator":      bools,
+	"SpaceBeforeParensOptions.AfterPlacementOperator":       bools,
+	"SpaceBeforeParensOptions.AfterRequiresInClause":        bools,
+	"SpaceBeforeParensOptions.AfterRequiresInExpression":    bools,
+	"SpaceBeforeParensOptions.BeforeNonEmptyParentheses":    bools,
+	"SpaceBeforeRangeBasedForLoopColon":                     bools,
+	"SpaceBeforeSquareBrackets":                             bools,
+	"SpaceInEmptyBlock":                                     bools,
+	"SpacesInLineCommentPrefix.Minimum":                     {"1"},
+	"SpacesInLineCommentPrefix.Maximum":                     {"1"},
+	"SpacesInParens":                                        {"Custom"},
+	// Needs to be custom so the SpacesInParensOptions sub options can work
+	"SpacesInParensOptions.ExceptDoubleParentheses": bools,
+	"SpacesInParensOptions.InConditionalStatements": bools,
+	"SpacesInParensOptions.InCStyleCasts":           bools,
+	"SpacesInParensOptions.InEmptyParentheses":      bools,
+	"SpacesInParensOptions.Other":                   bools,
+	"SpacesInSquareBrackets":                        bools,
+	"TabWidth":                                      {"4"},
+	"UseTab":                                        {"Never"},
 }
 
 type ClangFormat map[string]string
@@ -74,7 +206,7 @@ func (c ClangFormat) String() string {
 	// Add the options to the buffer for the non-grouped options
 	for _, key := range linesAlphabetical {
 		buf.WriteString(
-			fmt.Sprintf("%s: %s\n\n", key, lines[key]),
+			fmt.Sprintf("%s: %s\n", key, lines[key]),
 		)
 	}
 
@@ -143,13 +275,22 @@ func IdealClangFormatFile() (ClangFormat, int, error) {
 	// for each option, let's check whether their individual values
 	// would produce a diff that has a lower changed line count.
 	for _, optionName := range optionNames {
+		fmt.Printf(""+
+			"==================%s\n"+
+			"Checking option '%s'\n", strings.Repeat("=", len(optionName)), optionName)
 		if len(options[optionName]) < 2 {
+			fmt.Printf("Option '%s' is too short\n", optionName)
 			continue
 		}
 
 		changes := make(map[string]int)
 
 		for _, value := range options[optionName] {
+			fmt.Printf("  Checking value\n"+
+				"  %s: %s\n", optionName, value)
+			if value == "" {
+				panic(fmt.Sprintf("why %s", optionName))
+			}
 			format[optionName] = value
 
 			linesChanged, err := runOption(format)
@@ -168,6 +309,13 @@ func IdealClangFormatFile() (ClangFormat, int, error) {
 				minLinesChanged = linesChanged
 			}
 		}
+
+		fmt.Printf(""+
+			"* Winning value was '%s' *\n"+
+			"* with lines changed %d *\n",
+			winningValue,
+			minLinesChanged,
+		)
 
 		if linesChangedTotal > minLinesChanged {
 			linesChangedTotal = minLinesChanged
@@ -209,6 +357,7 @@ func runOption(option ClangFormat) (int, error) {
 	)
 
 	clangFormatCmd.Stderr = &stdErr
+	clangFormatCmd.Stdout = &stdOut
 	// clangFormatCmd does not need stdOut
 
 	fmt.Println("Running clang-format command")
@@ -216,6 +365,10 @@ func runOption(option ClangFormat) (int, error) {
 	if err != nil {
 		return 0, errors.Wrapf(err, "clangFormatCmd.Run(): %s", stdErr.String())
 	}
+
+	fmt.Printf("clangformat stdout:\n"+
+		"%s\n"+
+		"end of stdout\n", stdOut.String())
 
 	// let's get the diff
 	diffCtx, diffCxl := context.WithTimeout(context.Background(), 10*time.Second)
@@ -242,8 +395,12 @@ func runOption(option ClangFormat) (int, error) {
 	}
 
 	linesChanged, err := parseNumStat(stdOut.String())
-	if err != nil {
+	if err != nil && !errors.Is(err, errNoLinesChanged) {
 		return 0, errors.Wrap(err, "parseNumStat")
+	}
+
+	if errors.Is(err, errNoLinesChanged) {
+		fmt.Println("No lines changed apparently...")
 	}
 
 	fmt.Printf("Got diff, lines changed is %d\n", linesChanged)
@@ -275,13 +432,13 @@ func parseNumStat(output string) (int, error) {
 
 	trimmed := strings.TrimSpace(output)
 	if len(trimmed) == 0 {
-		return math.MaxInt32, nil
+		return 0, errNoLinesChanged
 	}
 
 	// Split the input by lines
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	if len(lines) == 0 {
-		return math.MaxInt32, nil
+		return 0, errNoLinesChanged
 	}
 
 	for _, line := range lines {
@@ -311,4 +468,15 @@ func parseNumStat(output string) (int, error) {
 	}
 
 	return totalLinesChanged, nil
+}
+
+var doubleCheckAfter = map[string][]string{
+	"AlignTrailingComments.OverEmptyLines": {"0", "1", "2", "3"},
+	"ConstructorInitializerIndentWidth":    {"4", "2"},
+	"ContinuationIndentWidth":              {"4", "2"},
+	"IndentWidth":                          {"4", "2"},
+	"MaxEmptyLinesToKeep":                  {"0", "1", "2", "3", "4"},
+	"SpacesInLineCommentPrefix.Minimum":    {"0", "1", "2", "3"},
+	"SpacesInLineCommentPrefix.Maximum":    {"0", "1", "2", "3"},
+	"TabWidth":                             {"2", "4"},
 }
