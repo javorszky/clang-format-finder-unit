@@ -12,7 +12,8 @@ git@github.com:nginx/unit.git` from the same directory this readme file is in
 ## The results
 
 You can find the ideal clang-format file in [.clang-format-ideal](.clang-format-ideal). It changes **17,666** lines 
-with the given options.
+from unit's current master version (https://github.com/nginx/unit/commit/1e345b3477ef8ca2eb79a4384dda1858a5a84e41)
+as of 5th November 2024 with the given options.
 
 There's also a file called [.clang-format-doesntmatter](.clang-format-doesntmatter) which lists all the options 
 where the different values for those options did not change the number of lines changed. It does not mean that those 
