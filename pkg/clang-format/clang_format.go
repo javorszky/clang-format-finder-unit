@@ -258,70 +258,24 @@ func (c ClangFormat) String() string {
 
 func IdealClangFormatFile() (ClangFormat, int, error) {
 	format := generateBasic(options)
+	linesChangedTotal := math.MaxInt32
+	var err error
 
-	// let's create a slice of option names
-	optionNames := make([]string, len(options))
-	i := 0
-	for opt := range options {
-		optionNames[i] = opt
-		i++
+	for j := 0; j < 2; j++ {
+		fmt.Printf("Running iteration %d\n", j+1)
+
+		format, linesChangedTotal, err = optimizeOptions(format, options, linesChangedTotal)
+		if err != nil {
+			return nil, 0, errors.Wrapf(err, "optimizeOptions in iteration %d", j)
+		}
 	}
 
-	// sort list alphabetically
-	slices.Sort(optionNames)
+	// Let's go around the doublecheckafter bits
+	fmt.Println("Running the doublechecks after")
 
-	linesChangedTotal := math.MaxInt32
-
-	// for each option, let's check whether their individual values
-	// would produce a diff that has a lower changed line count.
-	for _, optionName := range optionNames {
-		fmt.Printf(""+
-			"==================%s\n"+
-			"Checking option '%s'\n", strings.Repeat("=", len(optionName)), optionName)
-		if len(options[optionName]) < 2 {
-			fmt.Printf("Option '%s' is too short\n", optionName)
-			continue
-		}
-
-		changes := make(map[string]int)
-
-		for _, value := range options[optionName] {
-			fmt.Printf("  Checking value\n"+
-				"  %s: %s\n", optionName, value)
-			if value == "" {
-				panic(fmt.Sprintf("why %s", optionName))
-			}
-			format[optionName] = value
-
-			linesChanged, err := runOption(format)
-			if err != nil {
-				return nil, 0, errors.Wrap(err, "runOption")
-			}
-
-			changes[value] = linesChanged
-		}
-
-		minLinesChanged := math.MaxInt32
-		winningValue := ""
-		for value, linesChanged := range changes {
-			if linesChanged < minLinesChanged {
-				winningValue = value
-				minLinesChanged = linesChanged
-			}
-		}
-
-		fmt.Printf(""+
-			"* Winning value was '%s' *\n"+
-			"* with lines changed %d *\n",
-			winningValue,
-			minLinesChanged,
-		)
-
-		if linesChangedTotal > minLinesChanged {
-			linesChangedTotal = minLinesChanged
-		}
-
-		format[optionName] = winningValue
+	format, linesChangedTotal, err = optimizeOptions(format, doubleCheckAfter, linesChangedTotal)
+	if err != nil {
+		return nil, 0, errors.Wrap(err, "optimizeOptions in doubleCheck")
 	}
 
 	return format, linesChangedTotal, nil
@@ -357,7 +311,6 @@ func runOption(option ClangFormat) (int, error) {
 	)
 
 	clangFormatCmd.Stderr = &stdErr
-	clangFormatCmd.Stdout = &stdOut
 	// clangFormatCmd does not need stdOut
 
 	fmt.Println("Running clang-format command")
@@ -365,10 +318,6 @@ func runOption(option ClangFormat) (int, error) {
 	if err != nil {
 		return 0, errors.Wrapf(err, "clangFormatCmd.Run(): %s", stdErr.String())
 	}
-
-	fmt.Printf("clangformat stdout:\n"+
-		"%s\n"+
-		"end of stdout\n", stdOut.String())
 
 	// let's get the diff
 	diffCtx, diffCxl := context.WithTimeout(context.Background(), 10*time.Second)
@@ -470,6 +419,26 @@ func parseNumStat(output string) (int, error) {
 	return totalLinesChanged, nil
 }
 
+func didLinesChange(in map[string]int) bool {
+	lc := make([]int, len(in))
+	i := 0
+	for _, v := range in {
+		lc[i] = v
+		i++
+	}
+
+	previous := lc[0]
+	for j := 0; j < len(lc)-1; j++ {
+		if previous != lc[j+1] {
+			return false
+		}
+
+		previous = lc[j+1]
+	}
+
+	return true
+}
+
 var doubleCheckAfter = map[string][]string{
 	"AlignTrailingComments.OverEmptyLines": {"0", "1", "2", "3"},
 	"ConstructorInitializerIndentWidth":    {"4", "2"},
@@ -479,4 +448,81 @@ var doubleCheckAfter = map[string][]string{
 	"SpacesInLineCommentPrefix.Minimum":    {"0", "1", "2", "3"},
 	"SpacesInLineCommentPrefix.Maximum":    {"0", "1", "2", "3"},
 	"TabWidth":                             {"2", "4"},
+}
+
+func optimizeOptions(baseFormat ClangFormat, options map[string][]string, linesChangedTotal int) (ClangFormat, int,
+	error) {
+	// let's create a slice of option names
+	optionNames := make([]string, len(options))
+	i := 0
+	for opt := range options {
+		optionNames[i] = opt
+		i++
+	}
+
+	// sort list alphabetically
+	slices.Sort(optionNames)
+
+	irrelevant := make([]string, 0)
+
+	// for each option, let's check whether their individual values
+	// would produce a diff that has a lower changed line count.
+	for _, optionName := range optionNames {
+		fmt.Printf(""+
+			"==================%s\n"+
+			"Checking option '%s'\n", strings.Repeat("=", len(optionName)), optionName)
+		if len(options[optionName]) < 2 {
+			fmt.Printf("Option '%s' is too short\n", optionName)
+			continue
+		}
+
+		changes := make(map[string]int)
+
+		for _, value := range options[optionName] {
+			fmt.Printf("  Checking value\n"+
+				"  %s: %s\n", optionName, value)
+			if value == "" {
+				panic(fmt.Sprintf("why %s", optionName))
+			}
+			baseFormat[optionName] = value
+
+			linesChanged, err := runOption(baseFormat)
+			if err != nil {
+				return nil, 0, errors.Wrap(err, "runOption")
+			}
+
+			changes[value] = linesChanged
+		}
+
+		if didLinesChange(changes) {
+			irrelevant = append(irrelevant, optionName)
+		}
+
+		minLinesChanged := math.MaxInt32
+		winningValue := ""
+		for value, linesChanged := range changes {
+			if linesChanged < minLinesChanged {
+				winningValue = value
+				minLinesChanged = linesChanged
+			}
+		}
+
+		fmt.Printf(""+
+			"* Winning value was '%s' *\n"+
+			"* with lines changed %d *\n",
+			winningValue,
+			minLinesChanged,
+		)
+
+		if linesChangedTotal > minLinesChanged {
+			linesChangedTotal = minLinesChanged
+		}
+
+		baseFormat[optionName] = winningValue
+	}
+
+	fmt.Printf("These options did not have an effect on number of lines"+
+		"changed whatever their value was: %v\n", irrelevant)
+
+	return baseFormat, linesChangedTotal, nil
 }
